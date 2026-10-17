@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark" id="metaScheme">
+<meta name="theme-color" content="#000000" id="metaTheme">
+<script>
+  // [v3.3] the page's own build. If the published page (fetched with no-store) carries another one,
+  // or the bridge sends lines newer than this page knows, a "Reload" bar appears.
+  var APP_BUILD = 'v3.3-2026-10-17.2';
+  // Dark unless the rider picked light on this phone (header button).
+  (function () {
+    var t = 'dark';
+    try { if (localStorage.getItem('m3theme') === 'light') t = 'light'; } catch (e) {}
+    document.documentElement.setAttribute('data-theme', t);
+    document.getElementById('metaScheme').content = t;
+    document.getElementById('metaTheme').content = t === 'light' ? '#f2f2f7' : '#000000';
+  })();
+</script>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>M3 Bridge</title>
+<link rel="stylesheet" href="css/app.css?v=v3.3-2026-10-17.2">
+</head>
+<body>
+
+<header>
+  <h1>M3 Bridge</h1>
+  <span class="conn-pill" aria-live="polite"><span class="dot" id="connDot"></span><span id="connText">Not connected</span></span>
+  <button class="hdr-btn theme-btn" id="themeBtn" type="button" aria-label="Switch to light mode">
+    <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>
+    <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>
+  </button>
+  <button class="hdr-btn" id="hdrBtn" type="button" hidden>Disconnect</button>
+  <!-- while calibrating: (x) Calibrate Undo -->
+  <button class="top-x" id="topX" type="button" aria-label="Cancel calibration"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3 L13 13 M13 3 L3 13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg><span class="lbl">Tap again to cancel</span></button>
+  <div class="top-title" aria-hidden="true">Calibrate</div>
+  <button class="top-undo" id="topUndo" type="button" hidden>Undo</button>
+</header>
+
+<main id="main">
+  <!-- [v3.3] this page is older than the bridge (or than the published page): reload it -->
+  <div class="stale-bar" id="staleBar" role="alert" hidden>
+    <span id="staleText" style="flex:1">A newer version of this page is available.</span>
+    <button class="btn primary" id="staleReload" type="button">Reload</button>
+  </div>
+  <div class="card" id="connCard">
+    <p id="connMsg" class="muted">Connect to your Keiser M3 Bridge to begin.</p>
+    <button class="btn primary big" id="connectBtn" type="button">Connect</button>
+    <p class="small muted" id="demoHint" hidden style="margin-top:12px">No hardware? <a id="demoLink" href="?demo=1" style="color:var(--accent)">Try demo mode</a>.</p>
+  </div>
+
+  <!-- RIDE -->
+  <section class="view" id="view-ride" aria-label="Ride">
+    <div class="chips" id="chips">
+      <span class="chip" id="chipP"><span class="k">P</span>Pod</span>
+      <span class="chip" id="chipZ"><span class="k">Z</span>Zwift</span>
+      <span class="chip" id="chipV"><span class="k">V</span>Calibrated</span>
+      <span class="chip bad" id="chipS" hidden><span class="k">S</span>Saturated</span>
+      <span class="chip warn" id="chipH" hidden><span class="k">H</span><span id="chipHText">Off-path hold</span></span>
+      <span class="chip bad" id="chipG" hidden><span class="k">G</span>Recording</span>
+      <span class="chip warn" id="chipY" hidden><span class="k">Y</span>Sending recording</span>
+    </div>
+    <div class="gear-wrap">
+      <div class="gear-ring">
+        <div class="gear-label">GEAR</div>
+        <div class="gear dim" id="gear">--</div>
+      </div>
+      <div class="gear-note" id="gearNote">Waiting for data</div>
+      <button class="btn primary" id="goCal" type="button" hidden>Go to Calibrate</button>
+    </div>
+    <div class="tiles" id="tiles">
+      <div class="tile"><div class="v" id="watts">--</div><div class="u">Watts</div></div>
+      <div class="tile"><div class="v" id="cad">--</div><div class="u">RPM</div><div class="src" id="cadSrc" hidden></div></div>
+      <div class="tile"><div class="v" id="res">--</div><div class="u">Resist %</div></div>
+    </div>
+  </section>
+
+  <!-- CALIBRATE -->
+  <section class="view" id="view-cal" aria-label="Calibrate">
+    <!-- [v3.3] where you are in the one calibration flow -->
+    <div class="crumbs" id="crumbs" role="group" aria-label="Calibration progress" hidden>
+      <div class="crumb-t" id="crumbT">STEP 1 OF 6</div>
+      <div class="crumb-segs" id="crumbSegs" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+
+    <!-- [v3.3] step 1: find a good spot (live meters from X lines) -->
+    <div class="place" id="calPlace" hidden>
+      <div>
+        <h2>Find a good spot</h2>
+        <p class="lead">Pedal, and sweep the gear lever all the way up and back down. The meters show how well the bridge sees the magnets.</p>
+      </div>
+      <div class="gauge" role="img" id="gaugeSwing" aria-label="Lever swing">
+        <svg viewBox="0 0 240 170" aria-hidden="true">
+          <path class="trk" d="M 36.1 154.9 A 96 96 0 1 1 203.9 154.9"></path>
+          <path class="zn" id="gzWeak" d="M 36.1 154.9 A 96 96 0 1 1 203.9 154.9"></path>
+          <path class="zn" id="gzGood" d="M 36.1 154.9 A 96 96 0 1 1 203.9 154.9"></path>
+          <path class="zn" id="gzGreat" d="M 36.1 154.9 A 96 96 0 1 1 203.9 154.9"></path>
+          <path class="val fill-none" id="gVal" d="M 36.1 154.9 A 96 96 0 1 1 203.9 154.9"></path>
+        </svg>
+        <div class="gauge-in"><div class="big"><span id="gNum">--</span><span class="unit">µT</span></div><div class="lbl">Lever swing · <span id="gZone">move the lever</span></div></div>
+      </div>
+      <div class="meters">
+      <div class="meter" role="group" aria-label="Crank dip">
+        <div class="meter-h"><span class="k">Crank dip</span><span><span class="v" id="mDipV">--</span><span class="z" id="mDipZ"></span></span></div>
+        <div class="capsule"><i id="mDipF"></i><b id="mDipT1"></b><b id="mDipT2"></b></div>
+        <div class="meter-s">How clearly each pedal turn shows. Keep pedalling.</div>
+      </div>
+      <div class="meter" role="group" aria-label="Headroom">
+        <div class="meter-h"><span class="k">Headroom</span><span><span class="v" id="mHeadV">--</span><span class="z" id="mHeadZ"></span></span></div>
+        <div class="capsule"><i id="mHeadF"></i><b id="mHeadT1"></b><b id="mHeadT2"></b></div>
+        <div class="meter-s">Room left before the sensor saturates.</div>
+      </div>
+      </div>
+      <div class="verdict" id="placeVerdict" role="status">
+        <span class="vi" id="placeVi" aria-hidden="true">…</span>
+        <div><div class="vt" id="placeVt">Waiting for readings</div><div class="vs" id="placeVs">Pedal and move the lever.</div></div>
+      </div>
+      <div class="tip" id="lockTip" hidden>Keep the screen on: <b>Settings › Display &amp; Brightness › Auto-Lock › Never</b> while you calibrate.</div>
+      <div class="place-btns">
+        <button class="btn primary big" id="placeNext" type="button">Next</button>
+        <button class="btn text" id="placeBack" type="button">Back</button>
+      </div>
+    </div>
+
+    <!-- [v3.3] checkpoint after the gears going up -->
+    <div class="card saved-card" id="upSaved" role="region" aria-label="Saved" hidden>
+      <h2>Saved</h2>
+      <p>The gears going up are saved and ready to ride. Coming back down makes each gear switch where the console does.</p>
+      <div class="btn-stack">
+        <button class="btn primary big" id="upContinue" type="button">Continue down</button>
+        <button class="btn text" id="upLater" type="button">Later</button>
+      </div>
+    </div>
+
+    <!-- [v3.2] gears the bridge's check flagged after saving (F lines); filled by renderReview() -->
+    <div class="card review" id="reviewCard" role="region" aria-label="Check these gears" hidden></div>
+
+    <!-- [v3.2] confirm ride: app-only walkthrough comparing the bridge's gear with the console -->
+    <div class="card rck" id="rideCheck" role="region" aria-label="Gear check" hidden>
+      <div class="rck" id="rckOffer">
+        <h2>Check a few gears</h2>
+        <p>Ride for about a minute and compare the bridge's gear with the Keiser console at four gears.</p>
+        <p class="small muted">Watts will read a little below the console on purpose: the bridge uses Keiser's measured power scale. So only the gear is checked.</p>
+        <button class="btn primary big" id="rckStart" type="button">Start the gear check</button>
+        <button class="btn text" id="rckSkip" type="button">Skip</button>
+      </div>
+      <div class="rck" id="rckRun" hidden>
+        <div class="rck-step" id="rckStep">Check 1 of 4</div>
+        <div class="rck-task" id="rckTask"></div>
+        <div class="cadg rck-cad" id="rckCad" role="img" aria-label="Cadence">
+          <div class="cadbar" aria-hidden="true"><i class="win" id="rckCadWin"></i><b class="cadg-dot idle" id="rckCadMk"><span id="rckCadDot">--</span></b></div>
+          <div class="cadticks" aria-hidden="true"><span id="rckCadT1"></span><span id="rckCadT2"></span></div>
+        </div>
+        <div class="gear-ring" role="img" id="rckRing" aria-label="Bridge gear">
+          <div class="gear-label">BRIDGE</div>
+          <div class="gear dim" id="rckGear">--</div>
+        </div>
+        <div class="rck-note" id="rckNote" role="status"></div>
+        <div id="rckAsk" class="rck">
+          <div class="rck-q" id="rckQ"></div>
+          <div class="cal-btns" id="rckBtns">
+            <button class="btn primary" id="rckYes" type="button">Yes</button>
+            <button class="btn" id="rckNo" type="button">No</button>
+          </div>
+        </div>
+        <div id="rckPick" class="rck" hidden>
+          <div class="rck-q">What does the console show?</div>
+          <div class="stepper">
+            <button class="btn" id="rckMinus" type="button" aria-label="One gear lower">−</button>
+            <output id="rckVal" aria-live="polite">1</output>
+            <button class="btn" id="rckPlus" type="button" aria-label="One gear higher">+</button>
+          </div>
+          <button class="btn primary wide" id="rckSave" type="button">Save and go on</button>
+        </div>
+        <button class="btn text" id="rckQuit" type="button">Skip the rest</button>
+      </div>
+      <div class="rck" id="rckDone" hidden>
+        <h2 id="rckDoneTitle">Gear check</h2>
+        <div id="rckSum"></div>
+        <p class="small muted" id="rckSaved"></p>
+        <button class="btn primary wide" id="rckClose" type="button">Done</button>
+      </div>
+    </div>
+
+    <!-- the last calibration's result (below the review card and the gear check, which come first) -->
+    <div class="card result" id="resultCard" hidden></div>
+
+    <div id="calIdle">
+      <!-- [v3.3] pick up where the last calibration stopped (first, above the walkthrough) -->
+      <div class="card resume" id="calResume" hidden>
+        <h2 style="margin:0">Pick up where you stopped</h2>
+        <p class="small muted" style="margin:0" id="resumeText"></p>
+        <button class="btn primary wide" id="resumeDown" type="button">Continue down through the gears</button>
+        <button class="btn text" id="resumeCheck" type="button">Check a few gears</button>
+      </div>
+      <!-- One step at a time, Apple-style: a picture, a title, one sentence. Steps come from
+           CAL_INTRO (crank mode on v3 firmware, hold-still on v2); the last page starts. -->
+      <div class="onb" id="onb" aria-roledescription="walkthrough">
+        <div class="onb-art" aria-hidden="true">
+          <div class="art" data-art="pedal">
+            <div class="art-disc">
+              <svg class="art-crank" viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="14" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="4.4 3"></circle>
+                <path d="M24 24 V7" stroke="currentColor" stroke-width="5" stroke-linecap="round"></path>
+                <rect x="15" y="2" width="18" height="6" rx="3" fill="currentColor"></rect>
+                <circle cx="24" cy="24" r="4" fill="currentColor"></circle>
+              </svg>
+            </div>
+          </div>
+          <div class="art" data-art="check">
+            <div class="art-disc"><div class="art-lbl">RPM</div><div class="art-big">72</div></div>
+          </div>
+          <div class="art" data-art="shift">
+            <div class="art-row">
+              <div class="art-mini">7</div><span class="art-arrow">›</span>
+              <div class="art-mini blue">7</div><span class="art-arrow">›</span>
+              <div class="art-mini green"><svg viewBox="0 0 84 84"><path d="M20 44 L36 59 L65 27" fill="none" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
+            </div>
+          </div>
+          <div class="art" data-art="still">
+            <div class="art-disc blue"><div class="art-lbl">HOLD</div><div class="art-big">7</div></div>
+          </div>
+          <div class="art" data-art="ring">
+            <div class="art-ring" id="artRing"><div class="art-disc small"><div class="art-lbl">BOTTOM</div><div class="art-big">1</div></div></div>
+          </div>
+        </div>
+        <h2 class="onb-title" id="onbTitle" aria-live="polite"></h2>
+        <p class="onb-text" id="onbText"></p>
+        <div class="onb-dots" id="onbDots" aria-hidden="true"></div>
+        <div class="onb-btns">
+          <button class="btn primary big" id="onbNext" type="button">Continue</button>
+          <button class="btn primary big" id="calStart" type="button" hidden>Start calibration</button>
+          <button class="linkbtn onb-back" id="onbBack" type="button">Back</button>
+        </div>
+      </div>
+      <div class="onb-more">
+        <button class="btn secondary wide" id="saveStored" type="button">Save stored calibration</button>
+        <p class="small" id="storedMsg" role="status" hidden style="color:var(--warn);font-weight:600;margin:0"></p>
+        <p class="small muted" style="margin:0;text-align:center">Every finished calibration is saved on this phone. <button class="linkbtn" type="button" id="goSaved">See saved runs</button></p>
+      </div>
+    </div>
+
+    <div id="calActive" hidden>
+      <div class="hold-banner" id="holdBanner" role="status" hidden>
+        <div class="hb-t">Hold the lever still — the reading is still changing</div>
+        <div class="hb-s">It will capture by itself once the lever stops.</div>
+      </div>
+      <div class="cadg" id="cadG" role="img" aria-label="Cadence" hidden>
+        <div class="cadbar" id="cadBar" aria-hidden="true"><i class="win" id="cadWin"></i><b class="cadg-dot idle" id="cadMk"><span id="cadDot">--</span></b></div>
+        <div class="cadticks" aria-hidden="true"><span id="cadT1"></span><span id="cadT2"></span></div>
+        <div class="cadg-cap" id="cadCap"></div>
+      </div>
+      <div class="small" id="calWait" role="status" hidden style="color:var(--warn);font-weight:600;text-align:center">Waiting for the bridge…</div>
+      <div class="redo-banner" id="redoBanner" role="status" hidden></div>
+      <div class="qcheck" id="calCheck" role="alert" hidden>
+        <div class="qt"><span class="bang" aria-hidden="true">!</span><span id="checkTitle"></span></div>
+        <div class="qb" id="checkBody"></div>
+        <div class="qd" id="checkDrift" hidden></div>
+        <button class="btn warnfill" id="btnRedo" type="button">Redo point</button>
+        <button class="btn secondary" id="btnKeep" type="button">Capture anyway</button>
+      </div>
+      <div class="stage" id="stage">
+        <div id="calDots" aria-hidden="true"></div>
+        <div class="disc" id="disc">
+          <svg viewBox="0 0 236 236" aria-hidden="true">
+            <circle class="face" cx="118" cy="118" r="100"></circle>
+            <circle class="arc" id="arc0" cx="118" cy="118" r="112" stroke-dasharray="216.57 487.15" transform="rotate(-85.4 118 118)"></circle>
+            <circle class="arc" id="arc1" cx="118" cy="118" r="112" stroke-dasharray="216.57 487.15" transform="rotate(34.6 118 118)"></circle>
+            <circle class="arc" id="arc2" cx="118" cy="118" r="112" stroke-dasharray="216.57 487.15" transform="rotate(154.6 118 118)"></circle>
+            <circle class="arc" id="ringTrack" cx="118" cy="118" r="112"></circle>
+            <circle class="ringf" id="ringFill" cx="118" cy="118" r="112" stroke-dasharray="703.72" stroke-dashoffset="703.72" transform="rotate(-90 118 118)"></circle>
+          </svg>
+          <div class="disc-in">
+            <div id="discNum"><div class="lbl" id="discLbl">GEAR</div><div class="big" id="discBig">1</div></div>
+            <svg class="chk" id="discCheck" viewBox="0 0 84 84" aria-hidden="true" hidden><path d="M20 44 L36 59 L65 27" fill="none" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            <svg class="crank" id="discCrank" viewBox="0 0 48 48" aria-hidden="true" hidden>
+              <circle cx="24" cy="24" r="14" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="4.4 3"></circle>
+              <path d="M24 24 V7" stroke="currentColor" stroke-width="5" stroke-linecap="round"></path>
+              <rect x="15" y="2" width="18" height="6" rx="3" fill="currentColor"></rect>
+              <circle cx="24" cy="24" r="4" fill="currentColor"></circle>
+            </svg>
+            <div class="turns" id="discTurns" hidden></div>
+          </div>
+        </div>
+      </div>
+      <div class="behind-hint" id="behindHint" role="alert" hidden></div>
+      <div class="cal-say" id="calSay" aria-live="polite">
+        <div class="h" id="calHead"></div>
+        <div class="s" id="calSub"></div>
+      </div>
+      <div id="calCount">0 of 25</div>
+      <div class="stop-note" id="stopNote" hidden>Stop pedalling to shift any time you like.</div>
+      <div class="rv-links" id="fixLinks" hidden>
+        <button class="linkbtn" id="fixGuess" type="button">Use best guess instead</button>
+        <button class="linkbtn" id="fixSkip" type="button">Skip this gear</button>
+      </div>
+      <div class="btn-stack" id="confirmBtns" hidden style="margin-top:0;gap:4px">
+        <button class="btn primary big" id="btnConfirm" type="button">Yes, it matches</button>
+        <button class="btn text" id="btnRelearn" type="button">Learn again</button>
+      </div>
+      <div class="cal-btns">
+        <button class="btn primary capture" id="btnCapture" type="button">CAPTURE</button>
+        <button class="btn" id="btnUndo" type="button">UNDO</button>
+        <button class="btn danger" id="btnCancel" type="button">CANCEL</button>
+        <button class="btn skipdown" id="btnSkipDown" type="button" hidden aria-label="Finish without the down pass: save the gears measured so far">Finish without the down pass</button>
+      </div>
+    </div>
+
+    <button class="switch-row" id="autoToggle" type="button" role="switch" aria-checked="mixed">
+      <span class="t">Auto-capture</span>
+      <span class="switch" aria-hidden="true"></span>
+    </button>
+
+    <div class="card" id="pointsCard" hidden>
+      <h2>Captured points</h2>
+      <div class="small muted">x, y, z in µT. Right column: distance from the previous point (µT).</div>
+      <div class="plist" id="plist"></div>
+    </div>
+  </section>
+
+  <!-- DIAGNOSE -->
+  <section class="view" id="view-diag" aria-label="Diagnose">
+    <div class="card result" id="diagResult" hidden></div>
+
+    <div id="diagIdle">
+      <div class="card">
+        <h2>Diagnostic run</h2>
+        <p class="muted small">A guided recording of the raw magnetometer field while you move the lever, turn the crank and pedal. The bridge records 25 samples a second; afterwards the page downloads the recording and saves it on this phone. Needs firmware v2 with recording.</p>
+        <ol class="dsteps" id="diagStepList"></ol>
+        <p class="small muted" id="diagTotal" style="margin:8px 0 0"></p>
+        <div class="btn-stack">
+          <button class="switch-row" id="leanToggle" type="button" role="switch" aria-checked="true">
+            <span><span class="t">Include the lean step</span><br><span class="s">Leaning on the bars, sitting up, leaning back</span></span>
+            <span class="switch" aria-hidden="true"></span>
+          </button>
+          <button class="btn primary big" id="diagStart" type="button">Start diagnostic run</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="diagRun" hidden>
+      <div class="cal-point" id="dStepNo">Step 1 of 11</div>
+      <div class="dsegs" id="dSegs" aria-hidden="true"></div>
+      <div class="recinfo" id="dRec"></div>
+      <div class="prompt" aria-live="polite">
+        <div class="dlabel" id="dLabel"></div>
+        <div class="dtext" id="dText"></div>
+      </div>
+      <div id="dTimer">
+        <div class="countdown" id="dCount">0</div>
+        <div class="countdown-sub" id="dCountSub">seconds</div>
+      </div>
+      <div class="cal-btns" id="dNav">
+        <button class="btn" id="dBack" type="button">BACK</button>
+        <button class="btn primary" id="dNext" type="button">NEXT</button>
+      </div>
+      <div id="dDump" hidden>
+        <div class="dump-text" id="dDumpText">Downloading recording...</div>
+        <div class="bar"><i id="dBar"></i></div>
+        <div class="small muted" id="dDumpSub" style="margin-top:6px"></div>
+      </div>
+      <button class="btn danger wide" id="dCancel" type="button">CANCEL</button>
+    </div>
+
+    <div class="card" id="savedCard">
+      <h2>Saved runs</h2>
+      <div class="small muted" id="savedInfo"></div>
+      <div id="savedList"></div>
+    </div>
+  </section>
+
+  <!-- CONSOLE -->
+  <section class="view" id="view-console" aria-label="Console">
+    <div class="small muted" id="turnInfo" hidden></div>
+    <div class="log" id="log" role="log" aria-live="off"></div>
+    <button class="switch-row" id="rawToggle" type="button" role="switch" aria-checked="false">
+      <span><span class="t">Show machine lines</span><br><span class="s">S, C, K, A, U, Q, F, E, G, M, Y lines, plus the first 10 D and T lines</span></span>
+      <span class="switch" aria-hidden="true"></span>
+    </button>
+    <div class="qbtns">
+      <button class="btn" type="button" data-cmd="h">Help<span class="k">h</span></button>
+      <button class="btn" type="button" data-cmd="p">Print cal<span class="k">p</span></button>
+      <button class="btn" type="button" data-cmd="d">Debug<span class="k">d</span></button>
+      <button class="btn" type="button" data-cmd="t">Turns<span class="k">t</span></button>
+      <button class="btn" type="button" id="clearLog">Clear<span class="k">log</span></button>
+    </div>
+    <form class="sendrow" id="sendForm" autocomplete="off">
+      <input id="sendInput" maxlength="40" placeholder="1 char or #cmd" aria-label="Command: one character, or a # command"autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send">
+      <button class="btn primary" type="submit">Send</button>
+    </form>
+    <p class="small muted" style="margin:0">Debug (d) is chatty. Send it again to turn it off.</p>
+  </section>
+</main>
+
+<nav role="tablist" aria-label="Views">
+  <button type="button" role="tab" data-view="ride" aria-selected="true">Ride</button>
+  <button type="button" role="tab" data-view="cal" aria-selected="false">Calibrate<span class="badge" id="calBadge" hidden></span></button>
+  <button type="button" role="tab" data-view="diag" aria-selected="false">Diagnose<span class="badge" id="diagBadge" hidden></span></button>
+  <button type="button" role="tab" data-view="console" aria-selected="false">Console</button>
+</nav>
+
+<div id="toast" role="status"></div>
+
+<div id="copySheet" hidden>
+  <div class="sheet" role="dialog" aria-label="Copy CSV">
+    <div class="cal-head"><b id="copyTitle">Copy</b><button class="x-btn" type="button" id="copyClose" aria-label="Close">×</button></div>
+    <div class="small muted">Copying was blocked. The text is selected below; use your phone's Copy.</div>
+    <textarea id="copyText" readonly></textarea>
+  </div>
+</div>
+
+<script>
+  // Load the app's scripts in order, each with ?v=<APP_BUILD>, so a phone never runs a mix of
+  // two builds' files. The demo simulator is only downloaded with ?demo=1.
+  (function () {
+    // In load order; the last one wires the buttons and boots the page.
+    var APP_FILES = ['js/state.js', 'js/ui.js', 'js/protocol.js', 'js/ble.js',
+      'js/flow.js', 'js/gearcheck.js', 'js/storage.js', 'js/diag.js',
+      'js/render/ride.js', 'js/render/calibrate.js', 'js/render/diagnose.js', 'js/render/console.js',
+      'js/main.js'];
+    var DEMO_FILE = 'js/demo-sim.js';   // with ?demo=1, just before the last file
+    var demo = false;
+    try { demo = new URLSearchParams(location.search).get('demo') === '1'; } catch (e) {}
+    var files = APP_FILES.slice();
+    if (demo) files.splice(files.length - 1, 0, DEMO_FILE);
+    files.forEach(function (f) {
+      var el = document.createElement('script');
+      el.src = f + '?v=' + encodeURIComponent(APP_BUILD);
+      el.async = false;   // run in the order added
+      el.onerror = function () {
+        document.getElementById('staleText').textContent = 'Part of the page did not load. Check the connection, then reload.';
+        document.getElementById('staleBar').hidden = false;
+      };
+      document.body.appendChild(el);
+    });
+  })();
+</script>
+</body>
+</html>
