@@ -169,11 +169,12 @@ function homeListDue() {
 // (#22: only once read on this link, or calibrated on it)
 function homeListShown() {
   if (state.points.length !== TOTAL_POINTS || state.gearList || state.homeWalk || state.improving) return false;
-  if (homeListDue()) return !!state.homeRead || !!state.homeShownBefore;   // (while it is read again: the last one, then the new)
+  // (while it is read again: the last one, then the new; #75: not once the reads gave up)
+  if (homeListDue()) return !!state.homeRead || (!!state.homeShownBefore && (state.homeTries || 0) < 3);
   // #65: a drop: keep showing it (its buttons are off until the link is back)
-  return state.conn !== 'connected' && !!state.homeShownBefore && !state.place && !state.check && !calRunning(state.s);
+  return (state.conn !== 'connected' || !state.s) && !!state.homeShownBefore && !state.place && !state.check && !calRunning(state.s);   // (#77: until the first status line)
 }
-function calibrateAgain() { state.homeWalk = true; state.homeSel = 0; render(); }
+function calibrateAgain() { state.homeWalk = true; state.homeSel = 0; onbIdx = 0; render(); }   // (#80: from page 1)
 
 var gearListKey = '';
 function renderGearList() {
@@ -190,14 +191,19 @@ function renderGearList() {
   var q = gearQuality(), bad = 0, unsure = 0, g;
   for (g = 1; g <= GEARS; g++) { if (q[g].level === 2) bad++; else if (q[g].level === 1) unsure++; }
   var edges = improveEdges(q), connected = state.conn === 'connected';
-  var key = JSON.stringify(qualityLevels(q)) + '|' + gl.sel + '|' + edges.length + '|' + connected + '|' + JSON.stringify(gl.improved || '') + '|' + !!gl.home + '|' + !!gl.checked;
+  var reading = !!gl.home && connected && !state.homeRead;   // #75: the last list shown, while the bridge's is read
+  var live = connected && !reading;
+  var key = JSON.stringify(qualityLevels(q)) + '|' + gl.sel + '|' + edges.length + '|' + connected + '|' + JSON.stringify(gl.improved || '') + '|' + !!gl.home + '|' + !!gl.checked + '|' + reading;
   if (key === gearListKey) return;
   gearListKey = key;
   var lead = gl.improved ? gl.improved.better + ' of ' + gl.improved.total + ' gear' + (gl.improved.total === 1 ? '' : 's') + ' improved. '
+    : reading ? 'The last one read from the bridge (reading it again). '
     : gl.home ? 'The calibration on the bridge. ' : 'Saved on the bridge and ready to ride. ';
-  lead += !bad && !unsure ? 'Every gear looks good.'
+  var downs = state.downPoints.map(function (x) { return x.point; });
+  var noDown = isV33() && !state.learnFailed && state.points.length > 0 && !downs.length;   // #83: the down pass not done
+  lead += !bad && !unsure ? (noDown ? 'Every gear looks good going up; coming down isn\u2019t measured yet.' : 'Every gear looks good.')
     : (bad ? bad + ' gear' + (bad === 1 ? '' : 's') + ' need' + (bad === 1 ? 's' : '') + ' another look' : '') + (bad && unsure ? ', ' : '') +
-      (unsure ? unsure + ' ' + (unsure === 1 ? 'is' : 'are') + ' unsure' : '') + '. Tap a gear to see why.';
+      (unsure ? unsure + ' ' + (unsure === 1 ? 'is' : 'are') + ' unsure' : '') + '. ' + (noDown ? 'Coming down isn\u2019t measured yet. ' : '') + 'Tap a gear to see why.';
   $('glTitle').textContent = gl.improved ? 'Your gears now' : gl.home ? 'Your calibration' : gl.checked ? 'Your gears' : 'Calibration done';
   $('glLead').textContent = lead;
   var html = '';
@@ -208,8 +214,11 @@ function renderGearList() {
   $('glGrid').innerHTML = html;
   var sel = gl.sel && q[gl.sel];
   var keptHere = sel && sel.edges.length && sel.edges.every(function (e) { return (state.keptEdges || {})[e.pass + e.point]; });
-  $('glWhy').textContent = !sel ? '' : 'Gear ' + gl.sel + ': ' + (sel.why.length ? sel.why.join(' ') : 'looks good going up and coming down.') +
+  var downRead = !isV33() || state.learnFailed || gl.sel + 1 > TOTAL_POINTS - 2 || downs.indexOf(gl.sel + 1) >= 0;
+  $('glWhy').textContent = !sel ? '' : 'Gear ' + gl.sel + ': ' + (sel.why.length ? sel.why.join(' ')
+    : downRead ? 'looks good going up and coming down.' : 'looks good going up; coming down isn\u2019t measured yet.') +
     (keptHere ? ' You chose to keep it as it is.' : '');
+  $('glLead').hidden = !!sel;   // #43: the why takes the lead's place
   setHidden('glImprove', !edges.length);
   var fixable = 0;   // #36: gears with something Improve can redo
   var kept = state.keptEdges || {};
@@ -217,8 +226,8 @@ function renderGearList() {
   $('glImprove').textContent = gl.home ? 'Improve calibration' : 'Improve ' + fixable + ' gear' + (fixable === 1 ? '' : 's');
   setHidden('glFinish', !!gl.home);
   setHidden('glAgain', !gl.home);
-  $('glAgain').disabled = !connected;
-  $('glImprove').disabled = !connected;
+  $('glAgain').disabled = !live;
+  $('glImprove').disabled = !live;
   $('glCheck').className = 'btn ' + (edges.length ? '' : 'primary ') + 'wide';
-  $('glCheck').disabled = !connected;
+  $('glCheck').disabled = !live;
 }
