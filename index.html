@@ -8,7 +8,7 @@
 <script>
   // [v3.3] the page's own build. If the published page (fetched with no-store) carries another one,
   // or the bridge sends lines newer than this page knows, a "Reload" bar appears.
-  var APP_BUILD = 'v3.3-2026-10-18.4';
+  var APP_BUILD = 'v3.3-2026-10-18.5';
   // Dark unless the rider picked light on this phone (header button).
   (function () {
     var t = 'dark';
@@ -20,7 +20,7 @@
 </script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>M3 Bridge</title>
-<link rel="stylesheet" href="css/app.css?v=v3.3-2026-10-18.4">
+<link rel="stylesheet" href="css/app.css?v=v3.3-2026-10-18.5">
 </head>
 <body>
 
@@ -209,6 +209,7 @@
         <p class="small muted" style="margin:0" id="resumeText"></p>
         <button class="btn primary wide" id="resumeDown" type="button">Continue down through the gears</button>
         <button class="btn text" id="resumeCheck" type="button">Check a few gears</button>
+        <button class="linkbtn" id="resumeNew" type="button">Start a new calibration</button>
       </div>
       <!-- One step at a time, Apple-style: a picture, a title, one sentence. Steps come from
            CAL_INTRO (crank mode on v3 firmware, hold-still on v2); the last page starts. -->

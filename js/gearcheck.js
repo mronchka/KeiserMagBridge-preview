@@ -14,7 +14,7 @@ function maybeOfferCheck() {
   // [v3.3] the calibration is done: a finish card offers step 6 (Check a few gears) or Finish and ride.
   // (Not after the rider stopped the down pass: the start screen offers what is left.)
   if (isV33() && state.noAutoCheck) return;
-  if (isV33()) { openGearList(); return; }   // #11: the gear list (with Check a few gears) is the finish
+  if (isV33()) { if (!state.gearList) openGearList(); return; }   // #11: the gear list (with Check a few gears) is the finish (#62: once)
   state.check = { phase: 'offer', flow: isV33(), v32: isV32(), idx: 0, results: [], picking: false, val: 1, app: 0, list: pickChecks() };
   if (state.check.flow) showView('cal');
   render();
@@ -86,7 +86,7 @@ function renderRideCheck() {
   }
   setHidden('rckMore', !(c.phase === 'done' && c.flow && connected));
   if (c.phase !== 'run') return;
-  $('rckQuit').textContent = c.flow ? 'Skip this step' : 'Skip the rest';
+  $('rckQuit').textContent = c.flow ? 'Stop the gear check' : 'Skip the rest';
   var list = checkList(c), st = list[c.idx], s = state.s;
   $('rckStep').textContent = 'Check ' + (c.idx + 1) + ' of ' + list.length + ' · ' + st.label;
   if ($('rckTask').textContent !== st.task) $('rckTask').textContent = st.task;
@@ -184,11 +184,12 @@ function finishCheck() {
   var res = (c.prev || []).concat(c.results);   // (with "Check a few more gears": the earlier answers too)
   if (c.flow) {
     state.checkMisses = state.checkMisses || {};
-    c.results.forEach(function (r) {
-      var gg = edgeGear(r.app, r.console);
-      if (r.app !== r.console) state.checkMisses[gg] = { app: r.app, console: r.console };
-      else { delete state.checkMisses[r.app]; delete state.checkMisses[r.app + 1]; }   // (a match clears an earlier miss at that gear)
+    var fresh = {};
+    c.results.forEach(function (r) { if (r.app !== r.console) fresh[edgeGear(r.app, r.console)] = { app: r.app, console: r.console }; });
+    c.results.forEach(function (r) {   // a match clears an EARLIER check's miss at that gear (#56: not this check's)
+      if (r.app === r.console) [r.app, r.app + 1].forEach(function (g) { if (!fresh[g]) delete state.checkMisses[g]; });
     });
+    Object.keys(fresh).forEach(function (g) { state.checkMisses[g] = fresh[g]; });
   }
   var miss = res.filter(function (r) { return r.app !== r.console; });
   var rid = calRecordId(), saved = false;
@@ -216,7 +217,8 @@ function renderCheckSummary() {
   if (!c) return;
   var res = c.results, done = c.redone || {};
   var miss = res.filter(function (r) { return r.app !== r.console; });
-  $('rckDoneTitle').textContent = !res.length ? 'Gear check skipped' : miss.length ? 'Some gears differ' : 'All gears match';
+  var allRedone = miss.length && miss.every(function (r) { return done[edgeGear(r.app, r.console)]; });
+  $('rckDoneTitle').textContent = !res.length ? 'Gear check skipped' : allRedone ? 'Redone: check them again?' : miss.length ? 'Some gears differ' : 'All gears match';
   var html = '', redone = {};
   res.forEach(function (r) {
     var ok = r.app === r.console, btn = '';
@@ -228,7 +230,8 @@ function renderCheckSummary() {
           : '<button class="btn primary" type="button" data-rck-redo="' + gg + '" aria-label="Redo gear ' + gg + ' going up by pedalling">Redo gear ' + gg + '</button>';
       }
     }
-    var v = ok ? 'Gear ' + r.app + ' on both ✓' : 'Bridge ' + r.app + ', console ' + r.console;
+    var v = ok ? 'Gear ' + r.app + ' on both ✓' : 'Bridge ' + r.app + ', console ' + r.console +
+      ((c.v32 || state.v32) ? ' · the change to gear ' + edgeGear(r.app, r.console) : '');
     html += '<div class="rck-row' + (ok ? '' : ' miss') + '">' + (btn
       ? '<span class="k">' + esc(r.label) + '<span class="sub">' + v + '</span></span>' + btn
       : '<span class="k">' + esc(r.label) + '</span><span class="v">' + v + '</span>') + '</div>';
