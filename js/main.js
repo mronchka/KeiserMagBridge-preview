@@ -28,12 +28,14 @@ Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (
 $('goCal').addEventListener('click', function () { showView('cal'); });
 
 $('calStart').addEventListener('click', function () {
+  state.chapterUpSeen = false;   // (#107: a new calibration from this page: the part 2 card again)
   if (state.v33) { openPlace(); return; }   // [v3.3] step 1 first: find a good spot (Next starts the run)
   onCalStarted();
   send('c');
 });
 // [v3.3] step 1 -> step 2: placement stream off, start the calibration
 $('placeNext').addEventListener('click', function () {
+  state.chapterUpSeen = false;
   closePlace(true);
   onCalStarted();
   send('c');
@@ -200,7 +202,15 @@ $('rckPlus').addEventListener('click', function () { var c = state.check; if (c 
 $('rckSave').addEventListener('click', function () { var c = state.check; if (c) checkAnswer(c.val); });
 $('rckQuit').addEventListener('click', function () { finishCheck(); render(); });
 $('rckClose').addEventListener('click', function () {
-  var flow = state.check && state.check.flow;
+  var flow = state.check && state.check.flow, c0 = state.check;
+  if (c0 && c0.results) c0.results.forEach(function (r) { if (r.app === r.console && state.guessed) delete state.guessed[r.app]; });   // (#111: checked on a ride)
+  if (c0 && c0.fromHub) {
+    var miss = c0.results.filter(function (r) { return r.app !== r.console; }).length;
+    state.check = null;
+    backToHub(!c0.results.length ? '' : c0.single ? 'Gear ' + c0.single + (miss ? ' differs from the console.' : ' matches the console.')
+      : miss ? miss + ' of ' + c0.results.length + ' checks differed.' : 'Every gear checked matches the console.');
+    return;
+  }
   state.check = null;
   if (flow && state.result && state.result.type === 'K' && state.result.ok) { openGearList(); state.gearList.checked = true; render(); }   // [v3.3] back to the gear list
   else render();
@@ -214,17 +224,19 @@ $('glGrid').addEventListener('click', function (ev) {
 });
 // Setup: the welcome and the plan, the intro card, the hub, the gear sheet
 function suTop() { var mn = document.querySelector('main'); if (mn) mn.scrollTop = 0; }
-$('suGo').addEventListener('click', function () { setupPage = 'plan'; render(); suTop(); });
+function suFocus(id) { var el = $(id); if (el && el.focus) el.focus(); }
+$('suGo').addEventListener('click', function () { setupPage = 'plan'; render(); suTop(); suFocus('suPlanT'); });
 $('suNotNow').addEventListener('click', function () { showView('ride'); render(); });
-$('suBack').addEventListener('click', function () { if (state.homeWalk && state.homeRead) state.homeWalk = false; else setupPage = 'welcome'; render(); suTop(); });
+$('suBack').addEventListener('click', function () { if (state.homeWalk) state.homeWalk = false; else setupPage = 'welcome'; render(); suTop(); suFocus('suWelcomeT'); });
 $('suStart').addEventListener('click', function () { $('calStart').click(); });
 $('suBackHome').addEventListener('click', function () { state.homeWalk = false; render(); });
-$('chapterGo').addEventListener('click', function () { state.chapterUpSeen = true; render(); });
+$('chapterGo').addEventListener('click', function () { state.chapterUpSeen = true; render(); suFocus('calHead'); });
 $('glMore').addEventListener('click', function (ev) {
   var b = ev.target && ev.target.closest ? ev.target.closest('[data-su]') : null;
   if (b && !b.disabled) setupHubAct(b.getAttribute('data-su'));
 });
 $('gsClose').addEventListener('click', closeGearSheet);
+document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && state.sheetGear) closeGearSheet(); });
 $('gearSheet').addEventListener('click', function (ev) { if (ev.target === $('gearSheet')) closeGearSheet(); });
 $('gsRedo').addEventListener('click', sheetRedo);
 $('gsGuess').addEventListener('click', sheetGuess);

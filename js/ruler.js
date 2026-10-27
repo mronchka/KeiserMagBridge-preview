@@ -40,7 +40,7 @@ function gearStory(g) {
   for (var k = 2; k <= GEARS - 1; k++) if (fin(s[k]) && fin(s[k + 1])) widths.push(s[k + 1] - s[k]);
   widths.sort(function (a, b) { return a - b; });
   var medw = widths.length ? widths[widths.length >> 1] : 0;
-  var w = fin(s[g]) && fin(s[g + 1]) ? s[g + 1] - s[g] : NaN;
+  var w = g < GEARS && fin(s[g]) && fin(s[g + 1]) ? s[g + 1] - s[g] : NaN;   // (#118: gear 24 ends at the worked-out top)
   var dn = {};
   state.downPoints.forEach(function (x) { var o = onPath(path, x); if (o) dn[x.point] = o.s; });
   var flags = (state.lastFlags || []).filter(function (f) { return itemGear(f) === g; });
@@ -53,31 +53,46 @@ function gearStory(g) {
   var miss = (state.checkMisses || {})[g];
   var st = (state.pointStats || {})['u' + g] || {};
   var unread = !fin(s[g]) && g >= 2;
+  var lowDown = state.downPoints.length ? Math.min.apply(null, state.downPoints.map(function (x) { return x.point; })) : 99;
+  var downUnread = !unread && isV32() && state.downPoints.length > 0 && g + 1 <= TOTAL_POINTS - 2 && g + 1 >= lowDown &&
+    !state.downPoints.some(function (x) { return x.point === g + 1; });   // (#106: in the down pass's range, but not on this phone)
   var off = flags.some(function (f) { return f.pass === 'u' && f.reason === 'offpath'; });
   var pct = fin(w) && medw > 0 ? Math.round(100 * w / medw) : NaN;
-  // the verdict: the most telling thing about this gear, in a sentence
-  var v;
+  var flag = function (r) { return flags.filter(function (f) { return f.reason === r; })[0]; };
+  var has = function (r) { return reasons.indexOf(r) >= 0; };
+  // the verdict: the gear's most serious reason first (the bridge's flags and a check miss are red;
+  // the list's own reasons yellow), in a sentence
+  var v, fb = flag('behind'), fo = flag('offpath');
+  var guessed = !!(state.guessed || {})[g];
   if (unread) v = 'Where gear ' + g + ' starts didn’t reach this phone. The bridge most likely has it.';
+  else if (guessed && !miss) v = 'Gear ' + g + ' uses the bridge\u2019s best guess, not a measurement. Check it on a ride.';
+  else if (downUnread) v = 'Where gear ' + g + ' ends coming down didn’t reach this phone. The bridge most likely has it.';
   else if (miss) v = 'In the gear check the bridge read gear ' + miss.app + ' where the console showed ' + miss.console + '.';
-  else if (reasons.indexOf('behind') >= 0) v = 'Gear ' + g + ' was saved before the lever got past gear ' + (g - 1) + ', so the two overlap.';
-  else if (off) v = 'Where gear ' + g + ' starts is off to one side of the line the other gears make.';
-  else if (reasons.indexOf('pair') >= 0 || reasons.indexOf('updown') >= 0 || reasons.indexOf('gap') >= 0)
-    v = 'Going up and coming down, gear ' + g + ' changes at quite different spots.';
-  else if (reasons.indexOf('offpath') >= 0) v = 'Coming down, gear ' + g + ' ends off to one side of the other gears.';
-  else if (reasons.indexOf('narrow') >= 0 && fin(pct)) v = 'Gear ' + g + ' is about ' + pct + '% of the usual size, so a small nudge of the lever skips it.';
-  else if (reasons.indexOf('prior') >= 0) v = 'Gear ' + g + ' has moved since your last calibration.';
-  else if (st.back) v = 'Gear ' + g + ' was saved too far and had to be gone back to. It looks fine now.';
-  else if (st.w >= 2) v = 'It took ' + (st.w + 1) + ' tries to hold gear ' + g + ' steady when it was saved.';
+  else if (fb) v = fb.pass === 'd' ? 'Coming down, gear ' + g + ' was saved before the lever got past gear ' + (g + 1) + '.'
+    : 'Gear ' + g + ' was saved before the lever got past gear ' + (g - 1) + ', so the two overlap.';
+  else if (fo) v = fo.pass === 'd' ? 'Coming down, gear ' + g + ' ends off to one side of the other gears.'
+    : 'Where gear ' + g + ' starts is off to one side of the line the other gears make.';
+  else if (flag('pair') || flag('updown')) v = 'Going up and coming down, gear ' + g + ' changes at quite different spots.';
+  else if (flag('prior')) v = 'Gear ' + g + ' has moved since your last calibration.';
   else if (q.level === 0) v = 'Looks right' + (fin(pct) ? ': a normal size' : '') + ', and in line with the gears around it.';
+  else if (has('narrow') && fin(pct)) v = 'Gear ' + g + ' is about ' + pct + '% of the usual size, so a small nudge of the lever skips it.';
+  else if (has('gap')) v = 'Going up and coming down, gear ' + g + ' changes at quite different spots.';
+  else if (st.back || has('back')) v = 'Gear ' + g + ' was saved too far and had to be gone back to.';
+  else if (st.w >= 2 || has('unsteady')) v = 'Gear ' + g + ' took ' + (st.w || 2) + ' tries to settle when it was saved.';
   else v = q.why.join(' ');
-  return { g: g, level: q.level, verdict: v, s: s, dn: dn, medw: medw, w: w, pct: pct, guesses: guesses, off: off,
-    unread: unread, ghost: fin(dn[g]) && fin(dn[g + 1]), narrow: fin(pct) && pct < 80 };
+  unread = unread || downUnread;
+  return { g: g, level: q.level, verdict: v, guessed: guessed, s: s, dn: dn, medw: medw, w: w, pct: pct, guesses: guesses, off: off,
+    unread: unread, narrow: fin(pct) && pct < 80,
+    // the coming-down copy where up and down are the question; else the usual-size bracket (#118)
+    ghost: fin(dn[g]) && fin(dn[g + 1]) && (has('pair') || has('updown') || has('gap') ||
+      flags.some(function (f) { return f.pass === 'd'; })) };
 }
 
 // The picture: absolutely placed boxes in #rulerViz (its own width), like the design's ruler.
 function drawRuler(story) {
   var box = $('rulerViz'), W = box.clientWidth || 345, H = 128;
-  var s = story.s, g = story.g, col = ['var(--ok)', 'var(--warn-fill)', 'var(--bad)'][story.level];
+  var s = story.s, g = story.g, col = ['var(--ok)', 'var(--warn)', 'var(--bad)'][story.level];
+  var fill = ['var(--ok)', 'var(--warn-fill)', 'var(--bad)'][story.level], ink = ['var(--ok-ink)', 'var(--warn-ink)', 'var(--bad-ink)'][story.level];
   var ks = Object.keys(s).map(Number).sort(function (a, b) { return a - b; });
   if (ks.length < 3) { box.innerHTML = ''; return; }
   // the window: two usual gears either side of this one
@@ -93,8 +108,8 @@ function drawRuler(story) {
     var x1 = X(s[k]) + 1.5, w = Math.max(4, X(s[k2]) - 1.5 - x1);
     var single = k2 === k + 1, sel = single && k === g, merged = !single && g >= k && g < k2;
     el('left:' + x1 + 'px;top:' + TY + 'px;width:' + w + 'px;height:' + TH + 'px;border-radius:6px;' +
-      'background:' + (sel ? col : 'var(--surface2)') + ';' + (merged ? 'border:2px solid ' + col + ';background-image:repeating-linear-gradient(135deg,var(--line) 0 2px,transparent 2px 6px);' : '') +
-      'color:' + (sel ? (story.level === 1 ? '#000' : '#fff') : 'var(--muted)') + ';line-height:' + TH + 'px;font-weight:' + (sel ? 700 : 600),
+      'background:' + (sel ? fill : 'var(--surface2)') + ';' + (merged ? 'border:2px solid ' + col + ';background-image:repeating-linear-gradient(135deg,var(--line) 0 2px,transparent 2px 6px);' : '') +
+      'color:' + (sel ? ink : 'var(--muted)') + ';line-height:' + TH + 'px;font-weight:' + (sel ? 700 : 600),
       single ? (w >= 18 ? String(k) : '') : (w >= 56 ? k + '–' + (k2 - 1) + ' ?' : (w >= 14 ? '?' : '')));
     if (sel && w < 22) el('left:' + (x1 + w / 2 - 30) + 'px;top:' + (TY - 20) + 'px;width:60px;height:16px;color:' + col + ';font-weight:700', 'gear ' + g);
   }
@@ -118,7 +133,7 @@ function drawRuler(story) {
     var d1 = X(story.dn[g]) + 1.5, d2 = X(story.dn[g + 1]) - 1.5;
     el('left:' + d1 + 'px;top:' + y2 + 'px;width:' + Math.max(4, d2 - d1) + 'px;height:22px;border-radius:6px;border:2px dashed ' + col + ';color:' + col + ';line-height:18px;font-weight:700', String(g));
     el('left:' + Math.max(0, Math.min(d1, W - 200)) + 'px;top:' + (y2 + 26) + 'px;width:200px;height:16px;text-align:left;color:var(--muted)', 'the same gear, coming down');
-  } else if (story.narrow && fin(s[g])) {
+  } else if (fin(s[g]) && fin(story.w)) {
     var xu = X(s[g]), wu = story.medw * sc;
     el('left:' + xu + 'px;top:' + y2 + 'px;width:' + wu + 'px;height:2px;background:var(--muted)');
     el('left:' + xu + 'px;top:' + (y2 - 5) + 'px;width:2px;height:12px;background:var(--muted)');
@@ -131,18 +146,37 @@ function drawRuler(story) {
 
 // The sheet: open on a tapped gear (the end-of-run list or "Your calibration")
 function openGearSheet(g) { state.sheetGear = g; renderGearSheet(); }
-function closeGearSheet() { state.sheetGear = 0; renderGearSheet(); }
-var sheetKey = '';
+function closeGearSheet() {
+  var g = state.sheetGear;
+  state.sheetGear = 0;
+  renderGearSheet();
+  renderGearList();
+  var chip = g && document.querySelector ? document.querySelector('.gl-g[data-gear="' + g + '"]') : null;
+  if (chip && chip.focus) chip.focus();   // (back where the rider was)
+}
+var sheetKey = '', sheetWasShown = false;
+function sheetInert(on) {
+  ['main', 'header', 'nav'].forEach(function (sel) {
+    var el = document.querySelector ? document.querySelector(sel) : null;
+    if (el) { if (on) el.setAttribute('inert', ''); else el.removeAttribute('inert'); }
+  });
+}
 function renderGearSheet() {
   var g = state.sheetGear;
   var show = !!g && state.view === 'cal' && !calRunning(state.s) && !state.check && state.points.length > 0;
   setHidden('gearSheet', !show);
   document.body.classList.toggle('sheet-open', show);
+  if (show !== sheetWasShown) {   // (a dialog: the rest of the page waits; focus goes in)
+    sheetWasShown = show;
+    sheetInert(show);
+    if (show) setTimeout(function () { var d = document.querySelector ? document.querySelector('#gearSheet .gs') : null; if (d && d.focus) d.focus(); }, 0);
+  }
   if (!show) { sheetKey = ''; return; }
   var story = gearStory(g), connected = state.conn === 'connected';
   var flagsG = (state.lastFlags || []).filter(function (f) { return itemGear(f) === g && fin(f.gx); });
   var canRedo = gearRedoEdges(g).length > 0;
-  var key = JSON.stringify([g, story.level, story.verdict, flagsG.length, connected, canRedo, $('rulerViz').clientWidth]);
+  var live = connected && (!!state.homeRead || !!state.gearList);   // (#103: not on a remembered copy)
+  var key = JSON.stringify([g, story.level, story.verdict, flagsG.length, live, canRedo, $('rulerViz').clientWidth, story.guessed]);
   if (key === sheetKey) return;
   sheetKey = key;
   $('gsTitle').textContent = 'Gear ' + g;
@@ -154,10 +188,12 @@ function renderGearSheet() {
   // Redo: the main button when the gear is flagged; the best guess when the bridge has one; a check ride
   var redo = $('gsRedo'), guess = $('gsGuess'), check = $('gsCheck');
   redo.textContent = story.unread ? 'Read it again' : 'Redo gear ' + g;
-  redo.className = 'btn ' + (story.level ? 'primary' : 'secondary') + ' wide';
+  redo.className = 'btn ' + (story.level && !story.guessed ? 'primary' : 'secondary') + ' wide';
+  check.className = 'btn ' + (story.guessed ? 'primary' : 'secondary');   // (#111: a guess is checked on a ride)
+  setHidden('gsNote', live);   // (#109: why the buttons are off)
   setHidden('gsRedo', !canRedo && !story.unread);
   setHidden('gsGuess', !flagsG.length || story.unread);
-  redo.disabled = guess.disabled = check.disabled = !connected;
+  redo.disabled = guess.disabled = check.disabled = !live;
 }
 // Redo / best guess / a check ride of just this gear, from the sheet
 function sheetRedo() {
@@ -166,24 +202,29 @@ function sheetRedo() {
   if (gearStory(g).unread) { state.rereadTries = 0; rereadSoon(); return; }
   startGearRedo(g);
 }
+function sheetOnHub() { return !state.gearList && homeListShown(); }
 function sheetGuess() {
   var g = state.sheetGear, f = (state.lastFlags || []).filter(function (x) { return itemGear(x) === g && fin(x.gx); })[0];
   closeGearSheet();
   if (!f) return;
   // as a picked gear of Improve, so the list comes back with "Gear N redone" afterwards (no redo first)
-  state.improving = { before: qualityLevels(gearQuality()), picked: g };
+  state.improving = { before: qualityLevels(gearQuality()), picked: g, fromHub: sheetOnHub(), gears: 1 };
   state.gearList = null;
   state.reviewKept = {}; state.fixTries = {}; state.fixPaused = false; state.editErr = ''; state.redoResult = null; state.redoBefore = null;
-  state.review = { items: [{ pass: f.pass, point: f.point, reason: f.reason, gx: f.gx, gy: f.gy, gz: f.gz, gear: g }], source: 'improve' };
+  state.improving.guessOnly = true;   // (#102: only the bridge's guesses, no redo after them)
+  state.review = { items: (state.lastFlags || []).filter(function (x) { return itemGear(x) === g && fin(x.gx); }).map(function (x) {
+    return { pass: x.pass, point: x.point, reason: x.reason, gx: x.gx, gy: x.gy, gz: x.gz, gear: g, action: 'guess' };
+  }), source: 'improve' };
   fixAction('guess');
   render();
 }
 function sheetCheck() {
-  var g = state.sheetGear;
+  var g = state.sheetGear, hub = sheetOnHub();
   closeGearSheet();
   state.gearList = null;
   startGearCheck(null, [
-    { gear: g, pace: 'easy', label: 'Gear ' + g + ', easy', task: 'Shift to gear ' + g + ' and pedal at an easy pace.' },
-    { gear: g, pace: 'fast', label: 'Gear ' + g + ', faster', task: 'Stay in that gear and pedal faster.' }
+    { gear: g, pace: 'easy', label: 'Easy pace', task: 'Shift to gear ' + g + ' and pedal at an easy pace.' },
+    { gear: g, pace: 'fast', label: 'Faster', task: 'Stay in that gear and pedal faster.' }
   ]);
+  if (state.check) { state.check.single = g; state.check.fromHub = hub; }   // (#101: one gear, not "a gear check done"; #112)
 }

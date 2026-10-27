@@ -450,6 +450,7 @@ function onRedoStarted(s) {
     // #52: kept aside until the redo is saved, and given back if it isn't
     var pts = gearR ? gearEdges(gearR) : [{ pass: pass, point: point }];
     state.gearPending = null;
+    if (state.guessed) delete state.guessed[gearR || (pass === 'd' ? point - 1 : point)];   // (#111: measured again)
     state.redoStash = { gearKey: gearR ? 'g' + gearR : '', entries: pts.map(function (e) {
       var k = e.pass + e.point;
       var was = (e.pass === 'd' ? state.downPoints : state.points).filter(function (x) { return x.point === e.point; })[0];
@@ -536,7 +537,7 @@ function onK(p) {
   } else if (r.ok && !r.edit && flowAt === 5) {
     state.upSaved = false;
     state.fixHold = false;
-    if (state.stopSent) { state.noAutoCheck = true; state.fixPaused = true; }   // the rider stopped it (x / Finish without the down pass): flagged gears and step 6 wait
+    if (state.stopSent) state.fixPaused = true;   // the rider stopped it (x / Finish without the down pass): flagged gears wait on the gear list (#117)
     var finished = state.downPoints.some(function (q) { return q.point === 2; });
     setFlowRecord({ downDone: finished, checkDone: false });
   }
@@ -632,6 +633,7 @@ function onF(p) {
       flagged.forEach(function (it) {
         if ((state.keptEdges || {})[fixKey(it)]) return;   // #53: kept as it is
         if (picked && itemGear(it) !== picked) return;
+        if (state.improving && state.improving.guessOnly) return;   // (#102: a guess pass doesn't turn into a redo)
         if (!rest.some(function (x) { return fixKey(x) === fixKey(it); })) rest.unshift(it);
       });
       state.review = { items: rest, source: 'improve' };
@@ -727,7 +729,8 @@ function onE(p) {
     if (ed) {
       clearTimeout(ed.timer);
       ed.okd = true;   // K follows
-      if (ed.kind === 'R') { state.redoStash = null; state.improveSaved = state.improveLast; gearPendingApply(); }   // (#74: saved, even if its K is lost)
+      if (ed.kind === 'R') { state.redoStash = null; state.improveSaved = state.improveLast; gearPendingApply(); if (state.improving) state.improving.savedAny = true; }   // (#74: saved, even if its K is lost)
+      if (ed.kind === 'G') (state.guessed = state.guessed || {})[ed.pass === 'd' ? ed.point - 1 : ed.point] = true;   // (#111)
       // A guess isn't sent back as a C line: apply it here so the saved copy matches the bridge.
       if (ed.kind === 'G' && ed.g && fin(ed.g.x)) {
         var list = ed.pass === 'd' ? 'downPoints' : 'points';
@@ -788,6 +791,7 @@ function onA(p) {
   onbIdx = 0;
   state.fixHold = false; state.upSaved = false;
   logLine('Calibration aborted: ' + state.result.reason, 'sys');
+  if (/cancel/i.test(state.result.reason)) toast('Stopped. The points so far are under Saved runs.');   // (#116)
   state.result.recordId = savePartialCal('aborted: ' + state.result.reason);
   renderResult();
   renderBadge();
@@ -928,7 +932,7 @@ function onN(p) {
 }
 
 function onCalStarted() {
-  state.chapterUpSeen = false; state.sheetGear = 0;
+  state.sheetGear = 0;
   state.points = [];
   state.downPoints = [];
   state.behind = null;
@@ -1059,6 +1063,7 @@ function adoptStoredCal(q, ours) {   // ours: the page's own readback of this ru
     state.checkMisses = {}; state.keptEdges = {}; state.improvedGears = null; state.lastFlags = [];
   }
   if (other) {
+    state.guessed = {};
     // #70: nor this session's result: the gear check goes to the file that matches the bridge's calibration
     if (state.result && state.result.type === 'K') { state.result = null; renderResult(); }
     forgetCalRecord();
